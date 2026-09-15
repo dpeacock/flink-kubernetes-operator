@@ -20,11 +20,13 @@ package org.apache.flink.kubernetes.operator.validation;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.autoscaler.config.AutoScalerOptions;
 import org.apache.flink.autoscaler.validation.AutoscalerValidator;
+import org.apache.flink.client.program.PackagedProgramUtils;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.configuration.MemorySize;
+import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.kubernetes.configuration.KubernetesConfigOptions;
 import org.apache.flink.kubernetes.operator.api.AbstractFlinkResource;
 import org.apache.flink.kubernetes.operator.api.CrdConstants;
@@ -118,6 +120,7 @@ public class DefaultValidator implements FlinkResourceValidator {
                         deployment.getMetadata().getNamespace()),
                 validateLogConfig(spec.getLogConfiguration()),
                 validateJobSpec(spec.getJob(), spec.getTaskManager(), effectiveConfig),
+                validateNativeApplicationJar(spec, effectiveConfig),
                 validateJmSpec(spec.getJobManager(), effectiveConfig),
                 validateTmSpec(spec.getTaskManager(), effectiveConfig),
                 validateSpecChange(deployment),
@@ -296,6 +299,52 @@ public class DefaultValidator implements FlinkResourceValidator {
             return Optional.of("Job parallelism must be larger than 0");
         }
 
+        return Optional.empty();
+    }
+
+    private Optional<String> validateNativeApplicationJar(
+            FlinkDeploymentSpec spec, Map<String, String> effectiveConfig) {
+        var job = spec.getJob();
+        if (job == null
+                || KubernetesDeploymentMode.getDeploymentMode(spec)
+                        != KubernetesDeploymentMode.NATIVE
+                || PackagedProgramUtils.isPython(job.getEntryClass())
+                || (job.getArgs() != null && PackagedProgramUtils.isPython(job.getArgs()))) {
+            return Optional.empty();
+        }
+        if (job.getJarURI() != null) {
+            return StringUtils.isNullOrWhitespaceOnly(job.getJarURI())
+                    ? Optional.of(
+                            "job.jarURI must not be blank; omit it for a classpath-only application.")
+                    : Optional.empty();
+        }
+        var config = Configuration.fromMap(effectiveConfig);
+        if (config.contains(PipelineOptions.JARS)) {
+            var jars = config.get(PipelineOptions.JARS);
+            if (jars == null
+                    || jars.size() != 1
+                    || StringUtils.isNullOrWhitespaceOnly(jars.get(0))) {
+                return Optional.of(
+                        "pipeline.jars must contain exactly one JAR when configured; omit it for a classpath-only application.");
+            }
+            return Optional.empty();
+        }
+        // FLINK-33926 taught the native client and the application entrypoint to load the job
+        // from the image. It shipped in 2.0.1, but FlinkVersion only expresses minor versions,
+        // so 2.1 is the lowest value that guarantees the runtime supports this.
+        if (spec.getFlinkVersion() == null
+                || !spec.getFlinkVersion().isEqualOrNewer(FlinkVersion.v2_1)) {
+            return Optional.of("Native classpath-only applications require Flink 2.1 or newer.");
+        }
+        if (StringUtils.isNullOrWhitespaceOnly(job.getEntryClass())) {
+            return Optional.of(
+                    "job.entryClass must be defined for a native classpath-only application.");
+        }
+        // The bundled uploader requires a primary JAR even when only additional artifacts are set.
+        if (config.get(KubernetesConfigOptions.LOCAL_UPLOAD_ENABLED)) {
+            return Optional.of(
+                    "kubernetes.artifacts.local-upload-enabled must be false for a native classpath-only application.");
+        }
         return Optional.empty();
     }
 

@@ -109,6 +109,32 @@ public class FlinkDeploymentControllerTest {
     }
 
     @ParameterizedTest
+    @EnumSource(
+            value = FlinkVersion.class,
+            names = {"v1_20", "v2_0"})
+    void unsupportedClasspathOnlyUpdateDoesNotCancelRunningJob(FlinkVersion version)
+            throws Exception {
+        var deployment = TestUtils.buildApplicationCluster(version);
+        verifyReconcileNormalLifecycle(deployment);
+        var previousSpec = deployment.getStatus().getReconciliationStatus().getLastReconciledSpec();
+        var previousJob = flinkService.listJobs().get(0).f1.getJobId();
+
+        deployment.getSpec().getJob().setJarURI(null);
+        deployment.getSpec().getJob().setEntryClass("example.ImageApplication");
+        testController.reconcile(deployment, context);
+        testController.reconcile(deployment, context);
+
+        assertThat(deployment.getStatus().getError())
+                .contains("Native classpath-only applications require Flink 2.1 or newer.");
+        assertThat(deployment.getStatus().getReconciliationStatus().getLastReconciledSpec())
+                .isEqualTo(previousSpec);
+        assertThat(flinkService.listJobs()).hasSize(1);
+        assertThat(flinkService.listJobs().get(0).f1.getJobId()).isEqualTo(previousJob);
+        assertThat(deployment.getStatus().getJobStatus().getState())
+                .isEqualTo(org.apache.flink.api.common.JobStatus.RUNNING);
+    }
+
+    @ParameterizedTest
     @MethodSource("org.apache.flink.kubernetes.operator.TestUtils#flinkVersions")
     public void verifyBasicReconcileLoop(FlinkVersion flinkVersion) throws Exception {
 
