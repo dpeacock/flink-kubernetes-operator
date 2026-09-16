@@ -83,6 +83,8 @@ under the License.
              kube-apiserver binary extraction fails with an IllegalAccessError. -->
         <commons-io.version>2.22.0</commons-io.version>
         <flink.version>1.20.4</flink.version>
+        <!-- Empty by default: the released artifacts carry no classifier. -->
+        <flink.kubernetes.classifier />
         <guava.version>33.4.0-jre</guava.version>
 
         <slf4j.version>2.0.18</slf4j.version>
@@ -188,6 +190,13 @@ under the License.
     </dependencyManagement>
 
     <profiles>
+        <!-- Local verification only: replace with a released fixed client before upstream submission. -->
+        <profile>
+            <id>local-flink-40677</id>
+            <properties>
+                <flink.kubernetes.classifier>flink-40677</flink.kubernetes.classifier>
+            </properties>
+        </profile>
         <!--
           We're reusing the apache-release build profile defined in the Apache Parent POM,
           with one exclusion: do not run the source-release-assembly execution goal.

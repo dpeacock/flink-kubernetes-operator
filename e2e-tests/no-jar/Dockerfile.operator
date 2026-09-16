@@ -1,0 +1,42 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Package already-built reactor artifacts; no installed Maven artifacts or remote
+# operator images can accidentally substitute for the source under test.
+FROM eclipse-temurin:17-jre-jammy@sha256:ec72ba5962b45ae4e7f96bfb5ebf6eeb34a488b967f937c8e14f0aaec688954f
+ENV FLINK_HOME=/opt/flink \
+    FLINK_PLUGINS_DIR=/opt/flink/plugins \
+    OPERATOR_LIB=/opt/flink/operator-lib \
+    OPERATOR_VERSION=1.16.0 \
+    OPERATOR_JAR=flink-kubernetes-operator-1.16.0-shaded.jar \
+    WEBHOOK_JAR=flink-kubernetes-webhook-1.16.0-shaded.jar \
+    KUBERNETES_STANDALONE_JAR=flink-kubernetes-standalone-1.16.0.jar
+RUN groupadd --system --gid=9999 flink && \
+    useradd --system --home-dir /opt/flink --uid=9999 --gid=flink flink && \
+    mkdir -p /opt/flink/operator-lib && chown -R flink:flink /opt/flink
+WORKDIR /flink-kubernetes-operator
+COPY --chown=flink:flink flink-kubernetes-operator/target/*-shaded.jar ./
+COPY --chown=flink:flink flink-kubernetes-webhook/target/*-shaded.jar ./
+COPY --chown=flink:flink flink-kubernetes-standalone/target/flink-kubernetes-standalone-1.16.0.jar ./
+COPY --chown=flink:flink flink-kubernetes-operator/target/plugins /opt/flink/plugins
+COPY --chown=flink:flink flink-kubernetes-operator/target/log4j /opt/flink/operator-lib/log4j
+COPY --chown=flink:flink flink-kubernetes-operator/target/logback /opt/flink/operator-lib/logback
+COPY LICENSE NOTICE ./
+COPY docker-entrypoint.sh /
+USER flink
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["help"]
